@@ -3,6 +3,7 @@ package rabbitmq
 import (
 	"app/src/infrastructure/config"
 	"fmt"
+	"os"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -34,6 +35,32 @@ func buildRequiredModels() []Model {
 			Internal:   false,
 			NoWait:     false,
 			Args:       amqp.Table{},
+		},
+		ExchangeModel{
+			Exchange: "chatdetective.output.sendresult",
+			Kind: "topic",
+			Durable: true,
+			AutoDelete: false,
+			Internal: false,
+			NoWait: false,
+			Args: amqp.Table{},
+		},
+
+		QueueModel{
+			Queue: "chatdetective.sendresult.queue",
+			Durable: true,
+			AutoDelete: false,
+			Exclusive: false,
+			NoWait: false,
+			Args: amqp.Table{},
+		},
+	
+		BindingModel{
+			Queue: "chatdetective.sendresult.queue",
+			Exchange: "chatdetective.output.sendresult",
+			RoutingKey: os.Getenv("POD_ID"),
+			NoWait: false,
+			Args: amqp.Table{},
 		},
 	}
 

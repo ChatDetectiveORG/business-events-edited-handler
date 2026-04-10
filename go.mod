@@ -11,9 +11,13 @@ require (
 	gopkg.in/telebot.v4 v4.0.0-beta.7
 )
 
+require github.com/google/uuid v1.6.0 // indirect
+
+// replace github.com/ChatDetectiveORG/shared => ../shared
+
 require (
-	github.com/ChatDetectiveORG/shared v0.0.0-20260315130433-9501c6b260ec // indirect
-	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/ChatDetectiveORG/shared v0.1.6
+	github.com/beorn7/perks v1.0.1 // indirect; indirecte
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-pg/zerochecker v0.2.0 // indirect
