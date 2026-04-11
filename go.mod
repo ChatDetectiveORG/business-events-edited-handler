@@ -16,7 +16,7 @@ require github.com/google/uuid v1.6.0 // indirect
 // replace github.com/ChatDetectiveORG/shared => ../shared
 
 require (
-	github.com/ChatDetectiveORG/shared v0.1.6
+	github.com/ChatDetectiveORG/shared v0.1.11
 	github.com/beorn7/perks v1.0.1 // indirect; indirecte
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
