@@ -1,7 +1,7 @@
 package application
 
 import (
-	// "app/src/application/endpoints"
+	"app/src/application/endpoints"
 	"app/src/infrastructure/config"
 	"app/src/infrastructure/rabbitmq"
 	"context"
@@ -153,6 +153,7 @@ var router h.Router = h.Router{
 	ErrorChannel:    errors,
 	RabbitmqChannel: rabbitmqChannel,
 	Endpoints: []h.Endpoint{
+		endpoints.NewDeletedMessageEndpoint(),
 		// endpoints.NewSaveEndpoint(),
 	},
 }
