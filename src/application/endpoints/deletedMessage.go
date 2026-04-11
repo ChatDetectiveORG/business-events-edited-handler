@@ -3,7 +3,9 @@ package endpoints
 import (
 	"app/src/infrastructure/postgresql"
 	"context"
+	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -30,18 +32,33 @@ func NewDeletedMessageEndpoint() h.Endpoint {
 }
 
 func getDeletedMessageInfo(mid int, update tele.Update, hashe *h.HandlerChainHashe) (*models.Message, *e.ErrorInfo) {
+	botUser, err := getBotUser(update.DeletedBusinessMessages.BusinessConnectionID)
+	if e.IsNonNil(err) {
+		return nil, err
+	}
+
+	key, err := utils.DecryptUserKey(botUser.DataEncryptionKey)
+	if e.IsNonNil(err) {
+		return nil, e.FromError(err, "failed to decrypt user key")
+	}
+
+	encryptedChatId, err := utils.Encrypt([]byte(strconv.FormatInt(update.DeletedBusinessMessages.Chat.ID, 10)), key)
+	if e.IsNonNil(err) {
+		return nil, e.FromError(err, "failed to encrypt chat id")
+	}
+	
 	message := &models.Message{
-		ChatID: utils.ToHash(update.DeletedBusinessMessages.Chat.ID),
+		ChatID: encryptedChatId,
 		MessageID: mid,
-		BusinessConnectionID: update.DeletedBusinessMessages.BusinessConnectionID,
+		BusinessConnectionIDHash: utils.ToHash(update.DeletedBusinessMessages.BusinessConnectionID),
 	}
 
 	db := postgresql.GetDB()
-	err := db.Model(message).
-		Where("chat_id = ? AND message_id = ? AND business_connection_id = ?", message.ChatID, message.MessageID, utils.ToHash(message.BusinessConnectionID)).
+	eraw := db.Model(message).
+		Where("chat_id = ? AND message_id = ? AND business_connection_id_hash = ?", message.ChatID, message.MessageID, message.BusinessConnectionIDHash).
 		Select()
-	if e.IsNonNil(err) {
-		return nil,e.FromError(err, "failed to select deleted message")
+	if e.IsNonNil(eraw) {
+		return nil,e.FromError(eraw, "failed to select deleted message")
 	}
 
 	hashe.Add("db_message", message)
@@ -49,9 +66,9 @@ func getDeletedMessageInfo(mid int, update tele.Update, hashe *h.HandlerChainHas
 	return message, e.Nil()
 }
 
-func getBotUserID(businessConnectionID string) (int64, *e.ErrorInfo) {
+func getBotUser(businessConnectionID string) (*models.Telegramuser, *e.ErrorInfo) {
 	user := &models.Telegramuser{
-		BusinessConnectionID: businessConnectionID,
+		BusinessConnectionIDHash: utils.ToHash(businessConnectionID),
 	}
 
 	db := postgresql.GetDB()
@@ -59,78 +76,95 @@ func getBotUserID(businessConnectionID string) (int64, *e.ErrorInfo) {
 		Where("business_connection_id = ?", utils.ToHash(businessConnectionID)).
 		Select()
 	if e.IsNonNil(err) {
-		return 0, e.FromError(err, "failed to select bot user")
+		return nil, e.FromError(err, "failed to select bot user")
 	}
 
-	id, err := user.GetTgId()
-	if e.IsNonNil(err) {
-		return 0, e.FromError(err, "failed to get bot user id")
-	}
-
-	return id, e.Nil()
+	return user, e.Nil()
 }
 
 func sendNotification(message *models.Message, hashe *h.HandlerChainHashe) *e.ErrorInfo  {
-	if message.Metadata.Text != "" && len(message.Metadata.Text) <= 3900 {
-		botUserID, err := getBotUserID(message.BusinessConnectionID)
-		if e.IsNonNil(err) {
-			return err
-		}
+	botUser, err := getBotUser(message.BusinessConnectionIDHash)
+	if e.IsNonNil(err) {
+		return err
+	}
 
+	botUserID, err := botUser.GetTgId()
+	if e.IsNonNil(err) {
+		return err
+	}
+
+	key, err := utils.DecryptUserKey(botUser.DataEncryptionKey)
+	if e.IsNonNil(err) {
+		return e.FromError(err, "failed to decrypt user key")
+	}
+
+	decryptedMetadataJson, err := utils.Decrypt(message.Metadata, key)
+	if e.IsNonNil(err) {
+		return e.FromError(err, "failed to decrypt message metadata")
+	}
+
+	var metadata = &tele.Message{}
+	eraw := json.Unmarshal(decryptedMetadataJson, metadata)
+	if e.IsNonNil(eraw) {
+		return e.FromError(eraw, "failed to unmarshal message metadata")
+	}
+
+	if metadata.Text != "" && len(metadata.Text) <= 3900 {
 		// username := message.Metadata.Sender.FirstName + " " + message.Metadata.Sender.LastName
-		username := strings.TrimSpace(message.Metadata.Chat.FirstName + " " + message.Metadata.Chat.LastName)
+		username := strings.TrimSpace(metadata.Chat.FirstName + " " + metadata.Chat.LastName)
 
 		prefix := fmt.Sprintf("Пользователь %s удалил сообщение!\n", username)
-		originalTextLen := utils.TgLen(message.Metadata.Text)
+		originalTextLen := utils.TgLen(metadata.Text)
 		prefixLen := utils.TgLen(prefix)
 		usernameLen := utils.TgLen(username)
 
-		for i := 0; i < len(message.Metadata.Entities); i++ {
-			message.Metadata.Entities[i].Offset += prefixLen
+		for i := 0; i < len(metadata.Entities); i++ {
+			metadata.Entities[i].Offset += prefixLen
 		}
 
-		message.Metadata.Text = prefix + message.Metadata.Text
-		message.Metadata.Entities = append(message.Metadata.Entities, tele.MessageEntity{
+		metadata.Text = prefix + metadata.Text
+		metadata.Entities = append(metadata.Entities, tele.MessageEntity{
 			Type: tele.EntityTextLink,
 			Offset: 13,
 			Length: usernameLen,
-			URL: fmt.Sprintf("tg://user?id=%d", message.Metadata.Sender.ID),
+			URL: fmt.Sprintf("tg://user?id=%d", metadata.Sender.ID),
 		}, tele.MessageEntity{
 			Type: tele.EntityEBlockquote,
 			Offset: prefixLen,
 			Length: originalTextLen,
 		})
-		message.Metadata.Chat.ID = botUserID
+		metadata.Chat.ID = botUserID
 
-		sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", message.Metadata)
+		sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", metadata)
 		if e.IsNonNil(err) {
 			return err
 		}
 
-		summary := telegram.BuildMessageSummary(message.Metadata).String()
+		summary := telegram.BuildMessageSummary(metadata).String()
 
 		err = hashe.Emit("telegram.message.send", &tele.Message{
 			Chat: &tele.Chat{
 				ID: botUserID,
 			},
 			Text: summary,
-			Entities: message.Metadata.Entities,
+			Entities: metadata.Entities,
 			ReplyTo: sentMessage,
 		})
+
+		// TODO: Если не включено расширенное сохранение сообщений, удалять из бд
 
 		return err
 	}
 
-	botUserID, err := getBotUserID(message.BusinessConnectionID)
-	message.Metadata.Chat.ID = botUserID
-	sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", message.Metadata)
+	metadata.Chat.ID = botUserID
+	sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", metadata)
 
 	if e.IsNonNil(err) {
 		return err
 	}
 
-	username := strings.TrimSpace(message.Metadata.Chat.FirstName + " " + message.Metadata.Chat.LastName)
-	summary := telegram.BuildMessageSummary(message.Metadata).String()
+	username := strings.TrimSpace(metadata.Chat.FirstName + " " + metadata.Chat.LastName)
+	summary := telegram.BuildMessageSummary(metadata).String()
 	prefix := fmt.Sprintf("Пользователь %s удалил сообщение!\n", username)
 	usernameLen := utils.TgLen(username)
 
@@ -144,7 +178,7 @@ func sendNotification(message *models.Message, hashe *h.HandlerChainHashe) *e.Er
 			Type: tele.EntityTextLink,
 			Offset: 13,
 			Length: usernameLen,
-			URL: fmt.Sprintf("tg://user?id=%d", message.Metadata.Sender.ID),
+			URL: fmt.Sprintf("tg://user?id=%d", metadata.Sender.ID),
 		}},
 	})
 
