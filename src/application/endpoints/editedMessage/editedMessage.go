@@ -15,6 +15,7 @@ import (
 	tele "gopkg.in/telebot.v4"
 
 	shared "app/src/application/endpoints"
+	"app/src/infrastructure/postgresql"
 )
 
 func NewEditedMessageEndpoint() h.Endpoint {
@@ -111,8 +112,6 @@ func sendNotification(message *models.Message, newMessage *tele.Message, hashe *
 			ReplyTo: sentMessage,
 		})
 
-		// TODO: Если включено расширенное сохранение сообщений, вносить изменения в бд
-
 		return err
 	}
 
@@ -163,6 +162,39 @@ func sendNotification(message *models.Message, newMessage *tele.Message, hashe *
 	return err
 }
 
+func updateMessageInDatabase(message *models.Message, newMessage *tele.Message) *e.ErrorInfo {
+	db := postgresql.GetDB()
+
+	user, err := shared.GetBotUser(message.BusinessConnectionIDHash)
+	if e.IsNonNil(err) {
+		return err
+	}
+
+	key, err := utils.DecryptUserKey(user.DataEncryptionKey)
+	if e.IsNonNil(err) {
+		return e.FromError(err, "failed to decrypt user key")
+	}
+
+	metadataJson, eraw := json.Marshal(newMessage)
+	if e.IsNonNil(eraw) {
+		return e.FromError(eraw, "failed to encrypt message text")
+	}
+
+	encryptedMetadataJson, err := utils.Encrypt(metadataJson, key)
+	if e.IsNonNil(err) {
+		return e.FromError(err, "failed to encrypt message metadata")
+	}
+
+	message.Metadata = encryptedMetadataJson
+	_, eraw = db.Model(message).WherePK().Column("metadata").Update()
+	if e.IsNonNil(eraw) {
+		return e.FromError(eraw, "failed to update message in database")
+	}
+
+	// TODO: Если включено расширенное сохранение сообщений, вносить изменения в бд
+	return e.Nil()
+}
+
 
 func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	message, err := shared.GetMessageInfo(update.EditedBusinessMessage.ID, update.EditedBusinessMessage.BusinessConnectionID, update.EditedBusinessMessage.Chat.ID)
@@ -171,6 +203,11 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	}
 
 	err = sendNotification(message, update.EditedBusinessMessage, hashe)
+	if e.IsNonNil(err) {
+		return err
+	}
+
+	err = updateMessageInDatabase(message, update.EditedBusinessMessage)
 	if e.IsNonNil(err) {
 		return err
 	}
