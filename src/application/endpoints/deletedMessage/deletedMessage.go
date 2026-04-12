@@ -1,7 +1,6 @@
-package endpoints
+package deletedMessage
 
 import (
-	"app/src/infrastructure/postgresql"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -14,6 +13,8 @@ import (
 	"github.com/ChatDetectiveORG/shared/telegram"
 	utils "github.com/ChatDetectiveORG/shared/utils"
 	tele "gopkg.in/telebot.v4"
+
+	shared "app/src/application/endpoints"
 )
 
 func NewDeletedMessageEndpoint() h.Endpoint {
@@ -30,60 +31,8 @@ func NewDeletedMessageEndpoint() h.Endpoint {
 	return ep
 }
 
-func getDeletedMessageInfo(mid int, update tele.Update, hashe *h.HandlerChainHashe) (*models.Message, *e.ErrorInfo) {
-	chatIDHash, err := utils.ToSecureHash(update.DeletedBusinessMessages.Chat.ID)
-	if e.IsNonNil(err) {
-		return nil, e.FromError(err, "failed to encrypt chat id")
-	}
-
-	businessConnectionIDHash, err := utils.ToSecureHash(update.DeletedBusinessMessages.BusinessConnectionID)
-	if e.IsNonNil(err) {
-		return nil, e.FromError(err, "failed to get secure hash")
-	}
-	
-	message := &models.Message{
-		ChatIDHash: chatIDHash,
-		MessageID: mid,
-		BusinessConnectionIDHash: businessConnectionIDHash,
-	}
-
-	db := postgresql.GetDB()
-	eraw := db.Model(message).
-		Where("chat_id_hash = ? AND message_id = ? AND business_connection_id_hash = ?", message.ChatIDHash, message.MessageID, message.BusinessConnectionIDHash).
-		Select()
-	if e.IsNonNil(eraw) {
-		return nil,e.FromError(eraw, "failed to select deleted message").WithData(map[string]any{
-			"chat_id_hash": message.ChatIDHash,
-			"message_id": message.MessageID,
-			"business_connection_id_hash": message.BusinessConnectionIDHash,
-		})
-	}
-
-	hashe.Add("db_message", message)
-
-	return message, e.Nil()
-}
-
-func getBotUser(businessConnectionIDHash string) (*models.Telegramuser, *e.ErrorInfo) {
-	user := &models.Telegramuser{
-		BusinessConnectionIDHash: businessConnectionIDHash,
-	}
-
-	db := postgresql.GetDB()
-	eraw := db.Model(user).
-		Where("business_connection_id_hash = ?", user.BusinessConnectionIDHash).
-		Select()
-	if e.IsNonNil(eraw) {
-		return nil, e.FromError(eraw, "failed to select bot user").WithData(map[string]any{
-			"business_connection_id_hash": user.BusinessConnectionIDHash,
-		})
-	}
-
-	return user, e.Nil()
-}
-
 func sendNotification(message *models.Message, hashe *h.HandlerChainHashe) *e.ErrorInfo  {
-	botUser, err := getBotUser(message.BusinessConnectionIDHash)
+	botUser, err := shared.GetBotUser(message.BusinessConnectionIDHash)
 	if e.IsNonNil(err) {
 		return err
 	}
@@ -187,7 +136,7 @@ func sendNotification(message *models.Message, hashe *h.HandlerChainHashe) *e.Er
 
 func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	for _, deletedMessage := range update.DeletedBusinessMessages.MessageIDs {
-		message, err := getDeletedMessageInfo(deletedMessage, update, hashe)
+		message, err := shared.GetMessageInfo(deletedMessage, update.DeletedBusinessMessages.BusinessConnectionID, update.DeletedBusinessMessages.Chat.ID)
 		if e.IsNonNil(err) {
 			return err
 		}

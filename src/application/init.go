@@ -1,7 +1,9 @@
 package application
 
 import (
-	"app/src/application/endpoints"
+	"app/src/application/endpoints/deletedMessage"
+	"app/src/application/endpoints/editedMessage"
+
 	"app/src/infrastructure/config"
 	"app/src/infrastructure/rabbitmq"
 	"context"
@@ -153,7 +155,7 @@ var router h.Router = h.Router{
 	ErrorChannel:    errors,
 	RabbitmqChannel: rabbitmqChannel,
 	Endpoints: []h.Endpoint{
-		endpoints.NewDeletedMessageEndpoint(),
-		// endpoints.NewSaveEndpoint(),
+		deletedMessage.NewDeletedMessageEndpoint(),
+		editedMessage.NewEditedMessageEndpoint(),
 	},
 }
