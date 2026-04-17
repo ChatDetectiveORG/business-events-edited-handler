@@ -4,7 +4,7 @@ import (
 	"os"
 	"sync"
 
-	// requiredModels "app/src/infrastructure/postgresql/requiredModels"
+	// requiredModels "github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql/requiredModels"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
 

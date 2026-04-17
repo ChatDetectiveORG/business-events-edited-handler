@@ -3,7 +3,7 @@ package redis
 import (
 	"sync"
 
-	"app/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/config"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
 

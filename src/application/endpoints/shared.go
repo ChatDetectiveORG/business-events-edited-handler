@@ -4,7 +4,7 @@ import (
 	e "github.com/ChatDetectiveORG/shared/errors"
 	utils "github.com/ChatDetectiveORG/shared/utils"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
-	postgresql "app/src/infrastructure/postgresql"
+	postgresql "github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql"
 )
 
 func GetMessageInfo(mid int, businessConnectionID string, chatID int64) (*models.Message, *e.ErrorInfo) {

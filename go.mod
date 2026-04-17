@@ -1,4 +1,4 @@
-module app
+module github.com/ChatDetectiveORG/business-events-edited-handler
 
 go 1.23.3
 
@@ -13,10 +13,8 @@ require (
 
 require github.com/google/uuid v1.6.0 // indirect
 
-// replace github.com/ChatDetectiveORG/shared => ../shared
-
 require (
-	github.com/ChatDetectiveORG/shared v0.1.24
+	github.com/ChatDetectiveORG/shared v0.1.30
 	github.com/beorn7/perks v1.0.1 // indirect; indirecte
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

@@ -1,11 +1,11 @@
 package application
 
 import (
-	"app/src/application/endpoints/deletedMessage"
-	"app/src/application/endpoints/editedMessage"
+	"github.com/ChatDetectiveORG/business-events-edited-handler/src/application/endpoints/deletedMessage"
+	"github.com/ChatDetectiveORG/business-events-edited-handler/src/application/endpoints/editedMessage"
 
-	"app/src/infrastructure/config"
-	"app/src/infrastructure/rabbitmq"
+	"github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/config"
+	"github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/rabbitmq"
 	"context"
 	"fmt"
 	"log"
