@@ -17,6 +17,7 @@ import (
 	tele "gopkg.in/telebot.v4"
 
 	shared "github.com/ChatDetectiveORG/business-events-edited-handler/src/application/endpoints"
+	"github.com/ChatDetectiveORG/business-events-edited-handler/src/application/filters"
 	"github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql"
 )
 
@@ -28,7 +29,7 @@ func NewDeletedMessageEndpoint() h.Endpoint {
 			1*time.Minute,
 			h.InitChainHandler(run, h.EndOnError),
 		),
-		h.BusinessEvent(h.BusEventTypeDeleted),
+		h.And(h.BusinessEvent(h.BusEventTypeDeleted), filters.ActorIsNotSelf{}),
 	)
 
 	return ep
