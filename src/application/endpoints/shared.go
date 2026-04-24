@@ -1,10 +1,13 @@
 package endpoints
 
 import (
-	e "github.com/ChatDetectiveORG/shared/errors"
-	utils "github.com/ChatDetectiveORG/shared/utils"
-	models "github.com/ChatDetectiveORG/shared/postgresModels"
+	"encoding/json"
+
 	postgresql "github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql"
+	e "github.com/ChatDetectiveORG/shared/errors"
+	models "github.com/ChatDetectiveORG/shared/postgresModels"
+	utils "github.com/ChatDetectiveORG/shared/utils"
+	tele "gopkg.in/telebot.v4"
 )
 
 func GetMessageInfo(mid int, businessConnectionID string, chatID int64) (*models.Message, *e.ErrorInfo) {
@@ -55,4 +58,29 @@ func GetBotUser(businessConnectionIDHash string) (*models.Telegramuser, *e.Error
 	}
 
 	return user, e.Nil()
+}
+
+func GetMetadata(message *models.Message) (*tele.Message, *e.ErrorInfo) {
+	botUser, err := GetBotUser(message.BusinessConnectionIDHash)
+	if e.IsNonNil(err) {
+		return nil, err
+	}
+
+	key, err := utils.DecryptUserKey(botUser.DataEncryptionKey)
+	if e.IsNonNil(err) {
+		return nil, e.FromError(err, "failed to decrypt user key")
+	}
+
+	decryptedMetadataJson, err := utils.Decrypt(message.Metadata, key)
+	if e.IsNonNil(err) {
+		return nil, e.FromError(err, "failed to decrypt message metadata")
+	}
+
+	var metadata = &tele.Message{}
+	eraw := json.Unmarshal(decryptedMetadataJson, metadata)
+	if e.IsNonNil(eraw) {
+		return nil, e.FromError(eraw, "failed to unmarshal message metadata")
+	}
+
+	return metadata, e.Nil()
 }
