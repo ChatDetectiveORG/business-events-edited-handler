@@ -19,14 +19,14 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	}
 
 	input := &EditedInput{
-		OldVersion: update.EditedBusinessMessage,
-		NewVersion: update.EditedBusinessMessage,
+		OldVersion:   update.EditedBusinessMessage,
+		NewVersion:   update.EditedBusinessMessage,
 		MessageModel: message,
-		
-		Key: []byte{},
+
+		Key:       []byte{},
 		ReciverID: update.EditedBusinessMessage.Chat.ID,
 		ActorName: update.EditedBusinessMessage.Chat.FirstName + " " + update.EditedBusinessMessage.Chat.LastName,
-		ActorID: update.EditedBusinessMessage.Chat.ID,
+		ActorID:   update.EditedBusinessMessage.Chat.ID,
 	}
 
 	businessConnectionIDHash, err := utils.ToSecureHash(update.EditedBusinessMessage.BusinessConnectionID)
@@ -78,7 +78,7 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 			if e.IsNonNil(err) {
 				return e.Nil()
 			}
-	
+
 			input.ReciverID = interlocutorID
 			input.ActorName, err = botUser.GetFullName()
 			if e.IsNonNil(err) {
@@ -86,6 +86,14 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 			}
 			input.ActorID = botUserID
 		}
+	}
+
+	canReceive, err := shared.CanReceiveByHierarchy(input.ReciverID, input.ActorID)
+	if e.IsNonNil(err) {
+		return err
+	}
+	if !canReceive {
+		return e.Nil()
 	}
 
 	err = sendNotification(input, hashe)
@@ -100,4 +108,3 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 	return e.Nil()
 }
-

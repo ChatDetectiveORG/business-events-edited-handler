@@ -2,11 +2,13 @@ package endpoints
 
 import (
 	"encoding/json"
+	"time"
 
 	postgresql "github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql"
 	e "github.com/ChatDetectiveORG/shared/errors"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
 	utils "github.com/ChatDetectiveORG/shared/utils"
+	"github.com/go-pg/pg/v10"
 	tele "gopkg.in/telebot.v4"
 )
 
@@ -20,10 +22,10 @@ func GetMessageInfo(mid int, businessConnectionID string, chatID int64) (*models
 	if e.IsNonNil(err) {
 		return nil, e.FromError(err, "failed to get secure hash")
 	}
-	
+
 	message := &models.Message{
-		ChatIDHash: chatIDHash,
-		MessageID: mid,
+		ChatIDHash:               chatIDHash,
+		MessageID:                mid,
 		BusinessConnectionIDHash: businessConnectionIDHash,
 	}
 
@@ -32,9 +34,9 @@ func GetMessageInfo(mid int, businessConnectionID string, chatID int64) (*models
 		Where("chat_id_hash = ? AND message_id = ? AND business_connection_id_hash = ?", message.ChatIDHash, message.MessageID, message.BusinessConnectionIDHash).
 		Select()
 	if e.IsNonNil(eraw) {
-		return nil,e.FromError(eraw, "failed to select deleted message").WithData(map[string]any{
-			"chat_id_hash": message.ChatIDHash,
-			"message_id": message.MessageID,
+		return nil, e.FromError(eraw, "failed to select deleted message").WithData(map[string]any{
+			"chat_id_hash":                message.ChatIDHash,
+			"message_id":                  message.MessageID,
 			"business_connection_id_hash": message.BusinessConnectionIDHash,
 		})
 	}
@@ -83,4 +85,35 @@ func GetMetadata(message *models.Message) (*tele.Message, *e.ErrorInfo) {
 	}
 
 	return metadata, e.Nil()
+}
+
+func GetUserHierarchyByTelegramID(tgUserID int64) (models.UserHierarchy, *e.ErrorInfo) {
+	idHash, err := utils.ToSecureHash(tgUserID)
+	if e.IsNonNil(err) {
+		return models.UserHierarchy{}, err
+	}
+
+	user := &models.Telegramuser{}
+	db := postgresql.GetDB()
+	eraw := db.Model(user).Where("id_hash = ?", idHash).Select()
+	if eraw == pg.ErrNoRows {
+		return models.UserHierarchy{}, e.Nil()
+	}
+	if eraw != nil {
+		return models.UserHierarchy{}, e.FromError(eraw, "failed to get user hierarchy").WithSeverity(e.Notice)
+	}
+
+	return models.GetUserHierarchy(db, user.ID, time.Now())
+}
+
+func CanReceiveByHierarchy(receiverID int64, actorID int64) (bool, *e.ErrorInfo) {
+	receiver, err := GetUserHierarchyByTelegramID(receiverID)
+	if e.IsNonNil(err) {
+		return false, err
+	}
+	actor, err := GetUserHierarchyByTelegramID(actorID)
+	if e.IsNonNil(err) {
+		return false, err
+	}
+	return models.CanReceiveNotification(receiver, actor), e.Nil()
 }

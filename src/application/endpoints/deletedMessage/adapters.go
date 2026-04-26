@@ -20,12 +20,12 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	}
 
 	input := &DeletedInput{
-		TeleMessage: nil,
-		MessageModel: nil,
-		Key: []byte{},
-		ReciverID: 0,
-		ActorName: "",
-		ActorID: 0,
+		TeleMessage:        nil,
+		MessageModel:       nil,
+		Key:                []byte{},
+		ReciverID:          0,
+		ActorName:          "",
+		ActorID:            0,
 		ignoredMessagesIDs: []int{},
 	}
 
@@ -73,10 +73,10 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 		if message.SenderIDHash == botUser.IDHash {
 			db := postgresql.GetDB()
-	
+
 			var interlocutor = &models.Telegramuser{}
 			err = interlocutor.GetByTelegramID(db, update.DeletedBusinessMessages.Chat.ID)
-			if e.IsNonNil(err) { 
+			if e.IsNonNil(err) {
 				continue
 			}
 
@@ -90,6 +90,14 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 			}
 		}
 
+		canReceive, err := shared.CanReceiveByHierarchy(input.ReciverID, input.ActorID)
+		if e.IsNonNil(err) {
+			return err
+		}
+		if !canReceive {
+			continue
+		}
+
 		err = sendNotification(input, hashe)
 		if e.IsNonNil(err) {
 			return err
@@ -98,4 +106,3 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 	return e.Nil()
 }
-
