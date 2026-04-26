@@ -73,17 +73,19 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 			return e.Nil()
 		}
 
-		interlocutorID, err := interlocutor.GetTgId()
-		if e.IsNonNil(err) {
-			return e.Nil()
+		if interlocutor.BusinessConnectionIDHash == "" {
+			interlocutorID, err := interlocutor.GetTgId()
+			if e.IsNonNil(err) {
+				return e.Nil()
+			}
+	
+			input.ReciverID = interlocutorID
+			input.ActorName, err = botUser.GetFullName()
+			if e.IsNonNil(err) {
+				return e.Nil()
+			}
+			input.ActorID = botUserID
 		}
-
-		input.ReciverID = interlocutorID
-		input.ActorName, err = botUser.GetFullName()
-		if e.IsNonNil(err) {
-			return e.Nil()
-		}
-		input.ActorID = botUserID
 	}
 
 	err = sendNotification(input, hashe)

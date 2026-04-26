@@ -74,17 +74,20 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 		if message.SenderIDHash == botUser.IDHash {
 			db := postgresql.GetDB()
 	
-			err = (&models.Telegramuser{}).GetByTelegramID(db, update.DeletedBusinessMessages.Chat.ID)
+			var interlocutor = &models.Telegramuser{}
+			err = interlocutor.GetByTelegramID(db, update.DeletedBusinessMessages.Chat.ID)
 			if e.IsNonNil(err) { 
 				continue
 			}
 
-			input.ReciverID = update.DeletedBusinessMessages.Chat.ID
-			input.ActorName, err = botUser.GetFullName()
-			if e.IsNonNil(err) {
-				continue
+			if interlocutor.BusinessConnectionIDHash == "" {
+				input.ReciverID = update.DeletedBusinessMessages.Chat.ID
+				input.ActorName, err = botUser.GetFullName()
+				if e.IsNonNil(err) {
+					continue
+				}
+				input.ActorID = botUserID
 			}
-			input.ActorID = botUserID
 		}
 
 		err = sendNotification(input, hashe)
