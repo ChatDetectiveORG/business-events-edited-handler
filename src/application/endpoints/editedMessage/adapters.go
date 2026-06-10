@@ -8,8 +8,6 @@ import (
 
 	shared "github.com/ChatDetectiveORG/business-events-edited-handler/src/application/endpoints"
 	"github.com/ChatDetectiveORG/business-events-edited-handler/src/application/filters"
-	"github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql"
-	models "github.com/ChatDetectiveORG/shared/postgresModels"
 )
 
 func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
@@ -18,8 +16,13 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 		return err
 	}
 
+	oldVersion, err := shared.GetMetadata(message)
+	if e.IsNonNil(err) {
+		return err
+	}
+
 	input := &EditedInput{
-		OldVersion:   update.EditedBusinessMessage,
+		OldVersion:   oldVersion,
 		NewVersion:   update.EditedBusinessMessage,
 		MessageModel: message,
 
@@ -29,12 +32,7 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 		ActorID:   update.EditedBusinessMessage.Chat.ID,
 	}
 
-	businessConnectionIDHash, err := utils.ToSecureHash(update.EditedBusinessMessage.BusinessConnectionID)
-	if e.IsNonNil(err) {
-		return err
-	}
-
-	botUser, err := shared.GetBotUser(businessConnectionIDHash)
+	botUser, err := shared.ResolveBotUser(update.EditedBusinessMessage.BusinessConnectionID, update.EditedBusinessMessage)
 	if e.IsNonNil(err) {
 		return err
 	}
@@ -51,41 +49,13 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 	input.Key = key
 
-	actorIsBotUser := (&filters.ActorIsNotSelf{}).Filter(update)
+	actorIsInterlocutor := (&filters.ActorIsNotSelf{}).Filter(update)
 
-	if actorIsBotUser {
+	if actorIsInterlocutor {
 		input.ReciverID = botUserID
 		input.ActorName = update.EditedBusinessMessage.Chat.FirstName + " " + update.EditedBusinessMessage.Chat.LastName
 	} else {
-		interlocutorIDHash, err := utils.ToSecureHash(update.EditedBusinessMessage.Chat.ID)
-		if e.IsNonNil(err) {
-			return err
-		}
-
-		interlocutor := &models.Telegramuser{
-			IDHash: interlocutorIDHash,
-		}
-
-		db := postgresql.GetDB()
-
-		err = interlocutor.GetByTelegramID(db, update.EditedBusinessMessage.Chat.ID)
-		if e.IsNonNil(err) {
-			return e.Nil()
-		}
-
-		if interlocutor.BusinessConnectionIDHash == "" {
-			interlocutorID, err := interlocutor.GetTgId()
-			if e.IsNonNil(err) {
-				return e.Nil()
-			}
-
-			input.ReciverID = interlocutorID
-			input.ActorName, err = botUser.GetFullName()
-			if e.IsNonNil(err) {
-				return e.Nil()
-			}
-			input.ActorID = botUserID
-		}
+		return e.Nil()
 	}
 
 	canReceive, err := shared.CanReceiveByHierarchy(input.ReciverID, input.ActorID)
@@ -101,10 +71,5 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 		return err
 	}
 
-	err = updateMessageInDatabase(message, update.EditedBusinessMessage)
-	if e.IsNonNil(err) {
-		return err
-	}
-
-	return e.Nil()
+	return updateMessageInDatabase(message, update.EditedBusinessMessage)
 }

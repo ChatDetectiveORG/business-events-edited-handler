@@ -14,11 +14,6 @@ import (
 )
 
 func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
-	businessConnectionIDHash, err := utils.ToSecureHash(update.DeletedBusinessMessages.BusinessConnectionID)
-	if e.IsNonNil(err) {
-		return err
-	}
-
 	input := &DeletedInput{
 		TeleMessage:        nil,
 		MessageModel:       nil,
@@ -37,7 +32,7 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 		input.MessageModel = message
 
-		botUser, err := shared.GetBotUser(businessConnectionIDHash)
+		botUser, err := shared.ResolveBotUser(update.DeletedBusinessMessages.BusinessConnectionID, nil)
 		if e.IsNonNil(err) {
 			return err
 		}
@@ -65,7 +60,7 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 		var metadata = &tele.Message{}
 		eRaw := json.Unmarshal(metadataJson, metadata)
-		if e.IsNonNil(err) {
+		if e.IsNonNil(eRaw) {
 			return e.FromError(eRaw, "failed to unmarshal message metadata")
 		}
 

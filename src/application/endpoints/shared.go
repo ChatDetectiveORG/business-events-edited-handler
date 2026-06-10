@@ -62,6 +62,15 @@ func GetBotUser(businessConnectionIDHash string) (*models.Telegramuser, *e.Error
 	return user, e.Nil()
 }
 
+func ResolveBotUser(businessConnectionID string, msg *tele.Message) (*models.Telegramuser, *e.ErrorInfo) {
+	db := postgresql.GetDB()
+	user, err := models.ResolveBotUserByBusinessConnection(db, businessConnectionID, msg)
+	if e.IsNonNil(err) {
+		return nil, err
+	}
+	return user, e.Nil()
+}
+
 func GetMetadata(message *models.Message) (*tele.Message, *e.ErrorInfo) {
 	botUser, err := GetBotUser(message.BusinessConnectionIDHash)
 	if e.IsNonNil(err) {

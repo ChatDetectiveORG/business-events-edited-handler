@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	e "github.com/ChatDetectiveORG/shared/errors"
 	h "github.com/ChatDetectiveORG/shared/handlers"
@@ -18,34 +17,41 @@ import (
 )
 
 type EditedInput struct {
-	OldVersion *tele.Message
-	NewVersion *tele.Message
+	OldVersion   *tele.Message
+	NewVersion   *tele.Message
 	MessageModel *models.Message
 
 	Key []byte
 
 	ReciverID int64
 
-	ActorName  string
-	ActorID    int64
+	ActorName string
+	ActorID   int64
 }
 
-func SendOldAlbumnVersion(input *EditedInput, allMediaGroupMessagesApi []*tele.Message, hashe *h.HandlerChainHashe) *e.ErrorInfo {
+func actorLinkEntity(actorName string, actorID int64) tele.MessageEntity {
+	return tele.MessageEntity{
+		Type:   tele.EntityTextLink,
+		Offset: 13,
+		Length: utils.TgLen(actorName),
+		URL:    fmt.Sprintf("tg://user?id=%d", actorID),
+	}
+}
+
+func sendOldAlbumVersion(input *EditedInput, allMediaGroupMessagesApi []*tele.Message, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	mediaGroup, ok := telegram.BuildMediaGroup(allMediaGroupMessagesApi)
 	if !ok {
 		return e.NewError("failed to build media group", "failed to build media group")
 	}
 
-	mediaGroup.Chat = &tele.Chat{
-		ID: input.ReciverID,
-	}
+	mediaGroup.Chat = &tele.Chat{ID: input.ReciverID}
 
 	sentMediaGroup, err := hashe.EmitAlbumWait(context.Background(), "telegram.message.send", mediaGroup)
 	if e.IsNonNil(err) {
 		return err
 	}
 	if len(sentMediaGroup) == 0 {
-		return e.NewError("empty sent album", "deleted media group was sent without resulting messages").WithSeverity(e.Warning)
+		return e.NewError("empty sent album", "old media group was sent without resulting messages").WithSeverity(e.Warning)
 	}
 
 	summary, summarySendOpts := telegram.BuildMessageSummary(input.OldVersion)
@@ -58,10 +64,8 @@ func SendOldAlbumnVersion(input *EditedInput, allMediaGroupMessagesApi []*tele.M
 	}
 
 	toSend := &tele.Message{
-		Chat: &tele.Chat{
-			ID: input.ReciverID,
-		},
-		Text:    prefix + summary,
+		Chat: &tele.Chat{ID: input.ReciverID},
+		Text: prefix + summary,
 		ReplyTo: sentMediaGroup[0],
 		Entities: tele.Entities{tele.MessageEntity{
 			Type:   tele.EntityTextLink,
@@ -71,24 +75,19 @@ func SendOldAlbumnVersion(input *EditedInput, allMediaGroupMessagesApi []*tele.M
 		}},
 	}
 	toSend = telegram.HideSendOptsIntoMessage(toSend, summarySendOpts)
-	err = hashe.Emit("telegram.message.send", toSend)
-	if e.IsNonNil(err) {
-		return err
-	}
-
-	return e.Nil()
+	return hashe.Emit("telegram.message.send", toSend)
 }
 
-func SendNewAlbumnVersion(input *EditedInput, allMediaGroupMessagesApi[]*tele.Message, editedMessagePosition int, hashe *h.HandlerChainHashe) *e.ErrorInfo {
-	
+func sendNewAlbumVersion(input *EditedInput, allMediaGroupMessagesApi []*tele.Message, editedMessagePosition int, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	allMediaGroupMessagesApi[editedMessagePosition] = input.NewVersion
+
 	mediaGroup, ok := telegram.BuildMediaGroup(allMediaGroupMessagesApi)
 	if !ok {
 		return e.NewError("failed to build media group", "failed to build media group")
 	}
-	mediaGroup.Chat = &tele.Chat{
-		ID: input.ReciverID,
-	}
+
+	mediaGroup.Chat = &tele.Chat{ID: input.ReciverID}
+
 	sentMediaGroup, err := hashe.EmitAlbumWait(context.Background(), "telegram.message.send", mediaGroup)
 	if e.IsNonNil(err) {
 		return err
@@ -107,10 +106,8 @@ func SendNewAlbumnVersion(input *EditedInput, allMediaGroupMessagesApi[]*tele.Me
 	}
 
 	toSend := &tele.Message{
-		Chat: &tele.Chat{
-			ID: input.ReciverID,
-		},
-		Text:    prefix + summary,
+		Chat: &tele.Chat{ID: input.ReciverID},
+		Text: prefix + summary,
 		ReplyTo: sentMediaGroup[0],
 		Entities: tele.Entities{tele.MessageEntity{
 			Type:   tele.EntityTextLink,
@@ -120,9 +117,7 @@ func SendNewAlbumnVersion(input *EditedInput, allMediaGroupMessagesApi[]*tele.Me
 		}},
 	}
 	toSend = telegram.HideSendOptsIntoMessage(toSend, summarySendOpts)
-	err = hashe.Emit("telegram.message.send", toSend)
-
-	return e.Nil()
+	return hashe.Emit("telegram.message.send", toSend)
 }
 
 func handleMediagroup(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorInfo {
@@ -139,11 +134,10 @@ func handleMediagroup(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorIn
 
 	var unmarshalMessageErr *e.ErrorInfo
 	var allMediaGroupMessagesApi []*tele.Message
-
 	var editedMessagePosition int
 
 	for i, raw := range allMediagroupMessages {
-		var messageApi = &tele.Message{}
+		messageApi := &tele.Message{}
 
 		if raw.MessageID == input.MessageModel.MessageID {
 			editedMessagePosition = i
@@ -166,14 +160,12 @@ func handleMediagroup(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorIn
 		return e.FromError(unmarshalMessageErr, "sendNotification").WithSeverity(e.Warning)
 	}
 
-	err := SendOldAlbumnVersion(input, allMediaGroupMessagesApi, hashe)
+	err := sendOldAlbumVersion(input, allMediaGroupMessagesApi, hashe)
 	if e.IsNonNil(err) {
 		return err
 	}
 
-	err = SendNewAlbumnVersion(input, allMediaGroupMessagesApi, editedMessagePosition, hashe)
-
-	return err
+	return sendNewAlbumVersion(input, allMediaGroupMessagesApi, editedMessagePosition, hashe)
 }
 
 func handleTextMessage(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorInfo {
@@ -182,14 +174,15 @@ func handleTextMessage(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorI
 	prefixLen := utils.TgLen(prefix)
 	usernameLen := utils.TgLen(input.ActorName)
 
-	// Compute diff before metadata.Text is modified so both originals are available.
 	var oldDiffEntities, newDiffEntities []tele.MessageEntity
 	if highlightTextDiff {
 		oldDiffEntities, newDiffEntities = computeDiffBoldEntities(input.OldVersion.Text, input.NewVersion.Text)
 	}
 
-	for i := 0; i < len(input.OldVersion.Entities); i++ {
-		input.OldVersion.Entities[i].Offset += prefixLen
+	combined := *input.OldVersion
+
+	for i := 0; i < len(combined.Entities); i++ {
+		combined.Entities[i].Offset += prefixLen
 	}
 
 	postfix := "Новая версия:\n"
@@ -198,22 +191,22 @@ func handleTextMessage(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorI
 
 	for _, entity := range input.NewVersion.Entities {
 		entity.Offset += prefixLen + originalTextLen + postfixLen
-		input.OldVersion.Entities = append(input.OldVersion.Entities, entity)
+		combined.Entities = append(combined.Entities, entity)
 	}
 
 	if highlightTextDiff {
 		for _, ent := range oldDiffEntities {
 			ent.Offset += prefixLen
-			input.OldVersion.Entities = append(input.OldVersion.Entities, ent)
+			combined.Entities = append(combined.Entities, ent)
 		}
 		for _, ent := range newDiffEntities {
 			ent.Offset += prefixLen + originalTextLen + postfixLen
-			input.OldVersion.Entities = append(input.OldVersion.Entities, ent)
+			combined.Entities = append(combined.Entities, ent)
 		}
 	}
 
-	input.OldVersion.Text = prefix + input.OldVersion.Text + postfix + input.NewVersion.Text
-	input.OldVersion.Entities = append(input.OldVersion.Entities, tele.MessageEntity{
+	combined.Text = prefix + input.OldVersion.Text + postfix + input.NewVersion.Text
+	combined.Entities = append(combined.Entities, tele.MessageEntity{
 		Type:   tele.EntityTextLink,
 		Offset: 13,
 		Length: usernameLen,
@@ -227,68 +220,63 @@ func handleTextMessage(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorI
 		Offset: prefixLen + originalTextLen + postfixLen,
 		Length: newVersionTextLen,
 	})
-	input.OldVersion.Chat.ID = input.ReciverID
+	combined.Chat = &tele.Chat{ID: input.ReciverID}
 
-	sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", input.OldVersion)
+	sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", &combined)
 	if e.IsNonNil(err) {
 		return err
 	}
 
-	summary, summarySendOpts := telegram.BuildMessageSummary(input.OldVersion)
-	if summary != "" {
-		toSend := &tele.Message{
-			Chat: &tele.Chat{
-				ID: input.ReciverID,
-			},
-			Text:    summary,
-			ReplyTo: sentMessage,
-		}
-
-		toSend = telegram.HideSendOptsIntoMessage(toSend, summarySendOpts)
-
-		err = hashe.Emit("telegram.message.send", toSend)
+	summary, summarySendOpts := telegram.BuildMessageSummary(input.NewVersion)
+	if summary == "" {
+		return e.Nil()
 	}
 
-	return err
+	toSend := &tele.Message{
+		Chat:    &tele.Chat{ID: input.ReciverID},
+		Text:    summary,
+		ReplyTo: sentMessage,
+	}
+	toSend = telegram.HideSendOptsIntoMessage(toSend, summarySendOpts)
+	return hashe.Emit("telegram.message.send", toSend)
 }
 
 func handleOtherMedia(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorInfo {
-	// Apply diff highlighting to the fallback case (separate old/new messages).
 	if highlightTextDiff && input.OldVersion.Text != "" && input.NewVersion.Text != "" {
 		oldDiffEntities, newDiffEntities := computeDiffBoldEntities(input.OldVersion.Text, input.NewVersion.Text)
 		input.OldVersion.Entities = append(input.OldVersion.Entities, oldDiffEntities...)
 		input.NewVersion.Entities = append(input.NewVersion.Entities, newDiffEntities...)
 	}
 
-	input.OldVersion.Chat.ID = input.ReciverID
-	sentMessage, err := hashe.EmitWait(context.Background(), "telegram.message.send", input.OldVersion)
+	oldVersion := *input.OldVersion
+	oldVersion.Chat = &tele.Chat{ID: input.ReciverID}
 
+	sentOld, err := hashe.EmitWait(context.Background(), "telegram.message.send", &oldVersion)
 	if e.IsNonNil(err) {
 		return err
 	}
 
-	username := strings.TrimSpace(input.OldVersion.Chat.FirstName + " " + input.OldVersion.Chat.LastName)
-	usernameLen := utils.TgLen(username)
-
+	usernameLen := utils.TgLen(input.ActorName)
 	err = hashe.Emit("telegram.message.send", &tele.Message{
-		Chat: &tele.Chat{
-			ID: input.ReciverID,
-		},
-		Text:    fmt.Sprintf("Пользователь %s изменил сообщение!\nСтарая версия:", username),
-		ReplyTo: sentMessage,
-		Entities: tele.Entities{tele.MessageEntity{
-			Type:   tele.EntityTextLink,
-			Offset: 13,
-			Length: usernameLen,
-			URL:    fmt.Sprintf("tg://user?id=%d", input.ActorID),
-		}},
+		Chat: &tele.Chat{ID: input.ReciverID},
+		Text: fmt.Sprintf("Пользователь %s изменил сообщение!\nСтарая версия:", input.ActorName),
+		ReplyTo: sentOld,
+		Entities: tele.Entities{actorLinkEntity(input.ActorName, input.ActorID)},
 	})
+	if e.IsNonNil(err) {
+		return err
+	}
 
-	input.NewVersion.Chat.ID = input.ReciverID
-	sentMessage, err = hashe.EmitWait(context.Background(), "telegram.message.send", input.NewVersion)
+	newVersion := *input.NewVersion
+	newVersion.Chat = &tele.Chat{ID: input.ReciverID}
+
+	sentNew, err := hashe.EmitWait(context.Background(), "telegram.message.send", &newVersion)
+	if e.IsNonNil(err) {
+		return err
+	}
 
 	summary, summarySendOpts := telegram.BuildMessageSummary(input.NewVersion)
-	prefix := fmt.Sprintf("Пользователь %s изменил сообщение!\nНовая версия:", username)
+	prefix := fmt.Sprintf("Пользователь %s изменил сообщение!\nНовая версия:", input.ActorName)
 	prefixLen := utils.TgLen(prefix)
 
 	for i := 0; i < len(summarySendOpts.Entities); i++ {
@@ -296,11 +284,9 @@ func handleOtherMedia(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorIn
 	}
 
 	toSend := &tele.Message{
-		Chat: &tele.Chat{
-			ID: input.ReciverID,
-		},
+		Chat:    &tele.Chat{ID: input.ReciverID},
 		Text:    prefix + summary,
-		ReplyTo: sentMessage,
+		ReplyTo: sentNew,
 		Entities: tele.Entities{tele.MessageEntity{
 			Type:   tele.EntityTextLink,
 			Offset: 13,
@@ -308,12 +294,8 @@ func handleOtherMedia(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorIn
 			URL:    fmt.Sprintf("tg://user?id=%d", input.ActorID),
 		}},
 	}
-
 	toSend = telegram.HideSendOptsIntoMessage(toSend, summarySendOpts)
-
-	err = hashe.Emit("telegram.message.send", toSend)
-
-	return err
+	return hashe.Emit("telegram.message.send", toSend)
 }
 
 func sendNotification(input *EditedInput, hashe *h.HandlerChainHashe) *e.ErrorInfo {
@@ -357,6 +339,5 @@ func updateMessageInDatabase(message *models.Message, newMessage *tele.Message) 
 		return e.FromError(eraw, "failed to update message in database")
 	}
 
-	// TODO: Если включено расширенное сохранение сообщений, вносить изменения в бд
 	return e.Nil()
 }
