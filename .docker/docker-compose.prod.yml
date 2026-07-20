@@ -1,3 +1,8 @@
+# =============================================================================
+# LEGACY / NON-PRODUCTION. Do not use for production deployments.
+# The only supported production path is k3s + Helm — see DEPLOY.md and
+# k8s-cluster/docs/k3s-production-deploy.md in the monorepo root.
+# =============================================================================
 services:
   bot:
     image: ${DOCKERHUB_USERNAME}/${PROJECT_NAME}:latest # Используем образ из DockerHub

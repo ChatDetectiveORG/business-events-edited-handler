@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.4
 
 # --- Build stage ---
-FROM golang:latest AS builder
+FROM golang:1.24-bookworm AS builder
 WORKDIR /workspace
 COPY . ./
 WORKDIR /workspace/business-events-edited-handler
@@ -19,7 +19,7 @@ RUN apk --no-cache add ca-certificates
 ENTRYPOINT ["/app/app"]
 
 # --- Development image ---
-FROM golang:latest AS dev
+FROM golang:1.24-bookworm AS dev
 WORKDIR /workspace
 
 # Установка Air для hot reload
