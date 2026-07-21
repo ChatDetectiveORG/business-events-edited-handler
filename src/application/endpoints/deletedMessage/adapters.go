@@ -75,7 +75,7 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 				continue
 			}
 
-			if interlocutor.BusinessConnectionIDHash == "" {
+			if !interlocutor.IsConnected {
 				input.ReciverID = update.DeletedBusinessMessages.Chat.ID
 				input.ActorName, err = botUser.GetFullName()
 				if e.IsNonNil(err) {
