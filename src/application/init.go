@@ -14,6 +14,7 @@ import (
 
 	e "github.com/ChatDetectiveORG/shared/errors"
 	h "github.com/ChatDetectiveORG/shared/handlers"
+	"github.com/ChatDetectiveORG/shared/amqputil"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -81,19 +82,8 @@ func initRabbitmqQueue(cfg *config.Config) (<-chan amqp.Delivery, []string, *amq
 }
 
 func ListenToRabbitmq(cfg *config.Config, ctx context.Context, wg *sync.WaitGroup) *e.ErrorInfo {
-	var consumer <-chan amqp.Delivery
-	var consumerTags []string
-	var err *e.ErrorInfo
-	consumer, consumerTags, rabbitmqChannel, err = initRabbitmqQueue(cfg)
-	if !err.IsNil() {
-		return err
-	}
-	// router is a package-level singleton and was initialized before rabbitmqChannel was set.
-	// Update it to use the live channel to avoid nil deref in PublishWithContext.
-	router.RabbitmqChannel = rabbitmqChannel
 	router.ReplicaCount = cfg.RuntimeConfig.NumRoutingGorutines
 	if router.ReplicaCount <= 0 {
-		// Keep sharding active even if env var is missing.
 		router.ReplicaCount = shardCount
 	}
 	podID := cfg.RuntimeConfig.PodID
@@ -101,35 +91,52 @@ func ListenToRabbitmq(cfg *config.Config, ctx context.Context, wg *sync.WaitGrou
 		podID = "unknown"
 	}
 	router.InitSharding(podID, wg, ctx)
-	defer rabbitmqChannel.Close()
 
 	go hanleError(errors, ctx, wg)
 
-	for {
-		select {
-		case <-ctx.Done():
-			for _, tag := range consumerTags {
-				_ = rabbitmqChannel.Cancel(tag, false)
-			}
-			return e.Nil()
-		case delivery, ok := <-consumer:
-			if !ok {
-				// consumer channel closed
-				return e.FromError(nil, "RabbitMQ consumer channel closed").WithSeverity(e.Critical)
-			}
-			log.Printf("trace=%s received rk=%s", delivery.CorrelationId, delivery.RoutingKey)
-			if routeErr := router.HandleUpdate(delivery); !routeErr.IsNil() {
-				errors <- routeErr.WithData(map[string]any{"rk": delivery.RoutingKey}).WithSeverity(e.Critical)
-				if nackErr := delivery.Nack(false, false); nackErr != nil {
-					errors <- e.FromError(nackErr, "failed to nack delivery").WithSeverity(e.Critical)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		amqputil.RunConsumerLoop(ctx, amqputil.ConsumerConfig{
+			Dial: func() (*amqputil.ConsumerSession, error) {
+				deliveries, tags, ch, dialErr := initRabbitmqQueue(cfg)
+				if !dialErr.IsNil() {
+					return nil, dialErr
 				}
-				continue
-			}
-			if ackErr := delivery.Ack(false); ackErr != nil {
-				errors <- e.FromError(ackErr, "Ошибка подтверждения получения")
-			}
-		}
-	}
+				return &amqputil.ConsumerSession{
+					Deliveries: deliveries,
+					Channel:    ch,
+					Cleanup: func() {
+						for _, tag := range tags {
+							_ = ch.Cancel(tag, false)
+						}
+						_ = ch.Close()
+					},
+				}, nil
+			},
+			OnConnect: func(session *amqputil.ConsumerSession) {
+				router.OpenRabbitmqChannel = openRabbitmqChannel(cfg)
+				if refreshErr := router.RefreshRabbitmqSession(session.Channel, wg, ctx); !refreshErr.IsNil() {
+					log.Printf("business-events-edited-handler: refresh send-result consumers failed: %s", refreshErr.JSON())
+				}
+			},
+			OnDelivery: func(delivery amqp.Delivery) {
+				log.Printf("trace=%s received rk=%s", delivery.CorrelationId, delivery.RoutingKey)
+				if routeErr := router.HandleUpdate(delivery); !routeErr.IsNil() {
+					errors <- routeErr.WithData(map[string]any{"rk": delivery.RoutingKey}).WithSeverity(e.Critical)
+					if nackErr := delivery.Nack(false, false); nackErr != nil {
+						errors <- e.FromError(nackErr, "failed to nack delivery").WithSeverity(e.Critical)
+					}
+					return
+				}
+				if ackErr := delivery.Ack(false); ackErr != nil {
+					errors <- e.FromError(ackErr, "Ошибка подтверждения получения")
+				}
+			},
+		})
+	}()
+
+	return e.Nil()
 }
 
 func hanleError(src chan (*e.ErrorInfo), context context.Context, wg *sync.WaitGroup) {
@@ -150,6 +157,15 @@ func fmtShardQueue(i int) string {
 	return fmt.Sprintf("%s.q%02d", config.PodType, i)
 }
 
+func openRabbitmqChannel(cfg *config.Config) func() (*amqp.Channel, error) {
+	return func() (*amqp.Channel, error) {
+		ch, err := rabbitmq.NewRabbitmqChannel(cfg)
+		if !err.IsNil() {
+			return nil, err
+		}
+		return ch, nil
+	}
+}
 
 var router h.Router = h.Router{
 	ErrorChannel:    errors,

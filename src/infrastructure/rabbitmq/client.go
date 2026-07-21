@@ -61,6 +61,11 @@ func (c *Client) Channel() (*amqp.Channel, error) {
 	}
 	ch, err := conn.Channel()
 	if err != nil {
+		c.mu.Lock()
+		if c.conn == conn {
+			c.conn = nil
+		}
+		c.mu.Unlock()
 		return nil, fmt.Errorf("open channel: %w", err)
 	}
 	return ch, nil
