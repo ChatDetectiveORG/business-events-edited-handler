@@ -14,6 +14,7 @@ permissions:
 env:
   SERVICE_DIR: business-events-edited-handler
   IMAGE_NAME: business-events-edited-handler
+  HELM_SERVICE: business-events-edited
   GO_VERSION: "1.23.3"
 
 jobs:
@@ -73,3 +74,15 @@ jobs:
           tags: |
             ghcr.io/${{ env.owner_lc }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
             ghcr.io/${{ env.owner_lc }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Trigger selective production deploy
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.K8S_CLUSTER_DISPATCH_TOKEN }}
+        run: |
+          gh api repos/ChatDetectiveORG/k8s-cluster/dispatches \
+            -f event_type=image-published \
+            -f "client_payload[service]=${{ env.HELM_SERVICE }}" \
+            -f "client_payload[sha]=${{ github.sha }}" \
+            -f "client_payload[source_repo]=${{ github.repository }}" \
+            -f "client_payload[source_run_id]=${{ github.run_id }}"
