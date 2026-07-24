@@ -7,6 +7,7 @@ import (
 	postgresql "github.com/ChatDetectiveORG/business-events-edited-handler/src/infrastructure/postgresql"
 	e "github.com/ChatDetectiveORG/shared/errors"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
+	"github.com/ChatDetectiveORG/shared/telegram/rawmessage"
 	utils "github.com/ChatDetectiveORG/shared/utils"
 	"github.com/go-pg/pg/v10"
 	tele "gopkg.in/telebot.v4"
@@ -71,29 +72,118 @@ func ResolveBotUser(businessConnectionID string, msg *tele.Message) (*models.Tel
 	return user, e.Nil()
 }
 
+// MessageMetadataLoad holds decrypted metadata loaded in a single pass.
+type MessageMetadataLoad struct {
+	Stored rawmessage.StoredMessage
+	Legacy *tele.Message
+	Parsed *tele.Message
+}
+
+func LoadMessageMetadata(message *models.Message, key []byte) (MessageMetadataLoad, *e.ErrorInfo) {
+	stored, legacy, loadErr := rawmessage.LoadStoredMessage(int(message.MetadataFormat), message.Metadata, key)
+	if loadErr != nil {
+		return MessageMetadataLoad{}, e.FromError(loadErr, "failed to load stored metadata")
+	}
+
+	result := MessageMetadataLoad{
+		Stored: stored,
+		Legacy: legacy,
+	}
+	if legacy != nil {
+		result.Parsed = legacy
+		return result, e.Nil()
+	}
+	if len(stored.Payload) == 0 {
+		return MessageMetadataLoad{}, e.NewError("empty metadata", "failed to load message metadata").WithSeverity(e.Warning)
+	}
+
+	parsed := &tele.Message{}
+	if uerr := json.Unmarshal(stored.Payload, parsed); uerr != nil {
+		return MessageMetadataLoad{}, e.FromError(uerr, "failed to unmarshal message metadata")
+	}
+	result.Parsed = parsed
+	return result, e.Nil()
+}
+
 func GetMetadata(message *models.Message) (*tele.Message, *e.ErrorInfo) {
-	botUser, err := GetBotUser(message.BusinessConnectionIDHash)
+	stored, legacy, err := loadStoredMessage(message)
 	if e.IsNonNil(err) {
 		return nil, err
+	}
+	if legacy != nil {
+		return legacy, e.Nil()
+	}
+	if len(stored.Payload) == 0 {
+		return nil, e.NewError("empty metadata", "failed to load message metadata").WithSeverity(e.Warning)
+	}
+	parsed := &tele.Message{}
+	if uerr := json.Unmarshal(stored.Payload, parsed); uerr != nil {
+		return nil, e.FromError(uerr, "failed to unmarshal message metadata")
+	}
+	return parsed, e.Nil()
+}
+
+func GetStoredMetadata(message *models.Message) (rawmessage.StoredMessage, *tele.Message, *e.ErrorInfo) {
+	return loadStoredMessage(message)
+}
+
+func loadStoredMessage(message *models.Message) (rawmessage.StoredMessage, *tele.Message, *e.ErrorInfo) {
+	botUser, err := GetBotUser(message.BusinessConnectionIDHash)
+	if e.IsNonNil(err) {
+		return rawmessage.StoredMessage{}, nil, err
 	}
 
 	key, err := utils.DecryptUserKey(botUser.DataEncryptionKey)
 	if e.IsNonNil(err) {
-		return nil, e.FromError(err, "failed to decrypt user key")
+		return rawmessage.StoredMessage{}, nil, e.FromError(err, "failed to decrypt user key")
 	}
 
-	decryptedMetadataJson, err := utils.Decrypt(message.Metadata, key)
-	if e.IsNonNil(err) {
-		return nil, e.FromError(err, "failed to decrypt message metadata")
+	stored, legacy, loadErr := rawmessage.LoadStoredMessage(int(message.MetadataFormat), message.Metadata, key)
+	if loadErr != nil {
+		return rawmessage.StoredMessage{}, nil, e.FromError(loadErr, "failed to load stored metadata")
+	}
+	return stored, legacy, e.Nil()
+}
+
+func LoadMediaGroupRawMessages(message *models.Message, key []byte) ([]json.RawMessage, int, *e.ErrorInfo) {
+	if message.MediaGroupIDHash == "" {
+		return nil, -1, e.Nil()
 	}
 
-	var metadata = &tele.Message{}
-	eraw := json.Unmarshal(decryptedMetadataJson, metadata)
-	if e.IsNonNil(eraw) {
-		return nil, e.FromError(eraw, "failed to unmarshal message metadata")
+	db := postgresql.GetDB()
+	var rows []*models.Message
+	eRaw := db.Model(&rows).
+		Where("media_group_id_hash = ?", message.MediaGroupIDHash).
+		Order("message_id ASC").
+		Select()
+	if e.IsNonNil(eRaw) {
+		return nil, -1, e.FromError(eRaw, "failed to get media group messages")
 	}
 
-	return metadata, e.Nil()
+	raws := make([]json.RawMessage, 0, len(rows))
+	editedIndex := -1
+	for i, row := range rows {
+		if row.MessageID == message.MessageID {
+			editedIndex = i
+		}
+		stored, legacy, err := rawmessage.LoadStoredMessage(int(row.MetadataFormat), row.Metadata, key)
+		if err != nil {
+			return nil, -1, e.FromError(err, "failed to load media group metadata")
+		}
+		if len(stored.Payload) > 0 {
+			raws = append(raws, stored.Payload)
+			continue
+		}
+		if legacy == nil {
+			continue
+		}
+		payload, merr := json.Marshal(legacy)
+		if merr != nil {
+			return nil, -1, e.FromError(merr, "failed to marshal legacy media group metadata")
+		}
+		raws = append(raws, payload)
+	}
+	return raws, editedIndex, e.Nil()
 }
 
 func GetUserHierarchyByTelegramID(tgUserID int64) (models.UserHierarchy, *e.ErrorInfo) {

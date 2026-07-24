@@ -1,8 +1,6 @@
 package deletedMessage
 
 import (
-	"encoding/json"
-
 	e "github.com/ChatDetectiveORG/shared/errors"
 	h "github.com/ChatDetectiveORG/shared/handlers"
 	models "github.com/ChatDetectiveORG/shared/postgresModels"
@@ -53,18 +51,13 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 
 		input.Key = key
 
-		metadataJson, err := utils.Decrypt(message.Metadata, key)
+		meta, err := shared.LoadMessageMetadata(message, key)
 		if e.IsNonNil(err) {
 			return err
 		}
 
-		var metadata = &tele.Message{}
-		eRaw := json.Unmarshal(metadataJson, metadata)
-		if e.IsNonNil(eRaw) {
-			return e.FromError(eRaw, "failed to unmarshal message metadata")
-		}
-
-		input.TeleMessage = metadata
+		input.TeleMessage = meta.Parsed
+		input.Raw = meta.Stored.Payload
 
 		if message.SenderIDHash == botUser.IDHash {
 			db := postgresql.GetDB()

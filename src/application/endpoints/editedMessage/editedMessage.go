@@ -2,11 +2,9 @@ package editedMessage
 
 import (
 	"time"
+
 	h "github.com/ChatDetectiveORG/shared/handlers"
 )
-
-// highlightTextDiff controls whether changed words are highlighted with bold in edit notifications.
-const highlightTextDiff = true
 
 func NewEditedMessageEndpoint() h.Endpoint {
 	ep := h.Endpoint{}

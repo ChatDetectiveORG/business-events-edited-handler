@@ -3,6 +3,7 @@ package editedMessage
 import (
 	e "github.com/ChatDetectiveORG/shared/errors"
 	h "github.com/ChatDetectiveORG/shared/handlers"
+	"github.com/ChatDetectiveORG/shared/telegram/rawmessage"
 	utils "github.com/ChatDetectiveORG/shared/utils"
 	tele "gopkg.in/telebot.v4"
 
@@ -14,22 +15,6 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 	message, err := shared.GetMessageInfo(update.EditedBusinessMessage.ID, update.EditedBusinessMessage.BusinessConnectionID, update.EditedBusinessMessage.Chat.ID)
 	if e.IsNonNil(err) {
 		return err
-	}
-
-	oldVersion, err := shared.GetMetadata(message)
-	if e.IsNonNil(err) {
-		return err
-	}
-
-	input := &EditedInput{
-		OldVersion:   oldVersion,
-		NewVersion:   update.EditedBusinessMessage,
-		MessageModel: message,
-
-		Key:       []byte{},
-		ReciverID: update.EditedBusinessMessage.Chat.ID,
-		ActorName: update.EditedBusinessMessage.Chat.FirstName + " " + update.EditedBusinessMessage.Chat.LastName,
-		ActorID:   update.EditedBusinessMessage.Chat.ID,
 	}
 
 	botUser, err := shared.ResolveBotUser(update.EditedBusinessMessage.BusinessConnectionID, update.EditedBusinessMessage)
@@ -47,7 +32,28 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 		return err
 	}
 
-	input.Key = key
+	meta, err := shared.LoadMessageMetadata(message, key)
+	if e.IsNonNil(err) {
+		return err
+	}
+
+	newRaw, rawErr := rawmessage.MarshalBusinessMessage(update.EditedBusinessMessage)
+	if rawErr != nil {
+		return e.FromError(rawErr, "failed to marshal edited business message")
+	}
+
+	input := &EditedInput{
+		OldVersion:           meta.Parsed,
+		NewVersion:           update.EditedBusinessMessage,
+		OldRaw:               meta.Stored.Payload,
+		NewRaw:               newRaw,
+		MessageModel: message,
+
+		Key:       key,
+		ReciverID: update.EditedBusinessMessage.Chat.ID,
+		ActorName: update.EditedBusinessMessage.Chat.FirstName + " " + update.EditedBusinessMessage.Chat.LastName,
+		ActorID:   update.EditedBusinessMessage.Chat.ID,
+	}
 
 	actorIsInterlocutor := (&filters.ActorIsNotSelf{}).Filter(update)
 
@@ -71,5 +77,5 @@ func run(update tele.Update, hashe *h.HandlerChainHashe) *e.ErrorInfo {
 		return err
 	}
 
-	return updateMessageInDatabase(message, update.EditedBusinessMessage)
+	return updateMessageInDatabase(message, update.EditedBusinessMessage, key)
 }
